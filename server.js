@@ -7,137 +7,269 @@ const fs = require("fs");
 const logger = require("./utils/logger");
 const sanitizeInput = require("./middleware/sanitize");
 const errorMiddleware = require("./middleware/errorMiddleware");
+
 require("dotenv").config();
 
-// 1. Fail-fast if critical environment variables are missing in production
-const requiredEnvVars = ["JWT_SECRET", "DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME"];
-const missingVars = requiredEnvVars.filter((varName) => !process.env[varName]);
+// ===============================
+// ENV CHECK
+// ===============================
+const requiredEnvVars = [
+  "JWT_SECRET",
+  "DB_HOST",
+  "DB_USER",
+  "DB_PASSWORD",
+  "DB_NAME",
+];
+
+const missingVars = requiredEnvVars.filter(
+  (v) => !process.env[v]
+);
 
 if (missingVars.length > 0) {
-  logger.error(`FATAL STARTUP ERROR: The following environment variables are missing: ${missingVars.join(", ")}`);
+  console.error(
+    `Missing ENV Variables: ${missingVars.join(", ")}`
+  );
   process.exit(1);
 }
 
-// 2. Initialize Database & Run Migrations
+// ===============================
+// DB INIT & MIGRATIONS
+// ===============================
 require("./config/dbInit");
-require("./config/saasMigration")(); 
-require("./config/saasPhase2Migration")(); 
+require("./config/saasMigration")();
+require("./config/saasPhase2Migration")();
 
 const app = express();
 
-// 3. Security Middlewares
-app.use(helmet()); // Apply security headers
+// ===============================
+// SECURITY
+// ===============================
+app.use(helmet());
 
-// Configure whitelisted CORS origins for production
+// ===============================
+// CORS CONFIG
+// ===============================
 const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim())
-  : ["http://localhost:5173", "http://localhost:3000"];
+  ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim())
+  : [
+      "http://localhost:5173",
+      "http://localhost:3000",
+      "https://techrisebee.com",
+      "https://www.techrisebee.com",
+    ];
 
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps, postman, curl)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin) || process.env.NODE_ENV !== "production") {
-      callback(null, true);
-    } else {
-      callback(new Error("Blocked by CORS security policy"));
+    // Allow Postman, Mobile Apps, Curl, or local tests without origin header
+    if (!origin) {
+      return callback(null, true);
     }
+
+    const isAllowed = allowedOrigins.some(
+      (allowed) => allowed.toLowerCase() === origin.toLowerCase()
+    );
+
+    if (isAllowed || process.env.NODE_ENV !== "production") {
+      return callback(null, true);
+    }
+
+    console.log("Blocked Origin:", origin);
+    // Return false instead of throwing Error to prevent Express 500 route failure
+    return callback(null, false);
   },
+
   credentials: true,
+  methods: [
+    "GET",
+    "POST",
+    "PUT",
+    "PATCH",
+    "DELETE",
+    "OPTIONS",
+  ],
+  allowedHeaders: [
+    "Origin",
+    "X-Requested-With",
+    "Content-Type",
+    "Accept",
+    "Authorization",
+    "X-Company-Id", // CRITICAL: Required for SaaS tenant switching
+  ],
   optionsSuccessStatus: 200,
 };
+
+// Apply CORS globally
 app.use(cors(corsOptions));
 
+// ===============================
+// BODY PARSER
+// ===============================
 app.use(express.json());
-app.use(sanitizeInput); // Prevent XSS by sanitizing all incoming fields
+app.use(express.urlencoded({ extended: true }));
 
-// 4. Rate Limiting
+// ===============================
+// SANITIZE INPUT
+// ===============================
+app.use(sanitizeInput);
+
+// ===============================
+// RATE LIMITERS
+// ===============================
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // Limit each IP to 10 login requests per window
+  windowMs: 15 * 60 * 1000,
+  max: 10,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
     success: false,
-    message: "Too many login attempts. Please try again after 15 minutes."
-  }
+    message:
+      "Too many login attempts. Please try again after 15 minutes.",
+  },
 });
 
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 300, // Limit each IP to 300 general API requests per window
+  windowMs: 15 * 60 * 1000,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
     success: false,
-    message: "Too many requests. Please try again later."
-  }
+    message:
+      "Too many requests. Please try again later.",
+  },
 });
 
-// Apply rate limiting
 app.use("/api/auth/login", authLimiter);
 app.use("/api", apiLimiter);
 
-// 5. Static Files & Auto-create uploads directory
-const uploadsDir = path.join(__dirname, "uploads");
+// ===============================
+// UPLOADS
+// ===============================
+const uploadsDir = path.join(
+  __dirname,
+  "uploads"
+);
+
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
 }
-app.use("/uploads", express.static(uploadsDir));
 
-// 6. API Route Registrations
-const authRoutes = require("./routes/authRoutes");
-app.use("/api/auth", authRoutes);
+app.use(
+  "/uploads",
+  express.static(uploadsDir)
+);
 
-const userRoutes = require("./routes/userRoutes");
-app.use("/api/users", userRoutes);
+// ===============================
+// ROUTES
+// ===============================
+app.use(
+  "/api/auth",
+  require("./routes/authRoutes")
+);
 
-const tenantCompanyRoutes = require("./routes/tenantCompanyRoutes");
-app.use("/api/tenant-companies", tenantCompanyRoutes);
-logger.info("Tenant Company Routes Loaded Successfully");
+app.use(
+  "/api/users",
+  require("./routes/userRoutes")
+);
 
-const customerRoutes = require("./routes/customerRoutes");
-app.use("/api/customers", customerRoutes);
+app.use(
+  "/api/tenant-companies",
+  require("./routes/tenantCompanyRoutes")
+);
 
-const companyRoutes = require("./routes/companyRoutes");
-app.use("/api/company-profile", companyRoutes);
+app.use(
+  "/api/customers",
+  require("./routes/customerRoutes")
+);
 
-const bankRoutes = require("./routes/bankRoutes");
-app.use("/api/banks", bankRoutes);
+app.use(
+  "/api/company-profile",
+  require("./routes/companyRoutes")
+);
 
-const termsRoutes = require("./routes/termsRoutes");
-app.use("/api/terms", termsRoutes);
+app.use(
+  "/api/banks",
+  require("./routes/bankRoutes")
+);
 
-const quotationRoutes = require("./routes/quotationRoutes");
-app.use("/api/quotations", quotationRoutes);
+app.use(
+  "/api/terms",
+  require("./routes/termsRoutes")
+);
 
-const invoiceRoutes = require("./routes/invoiceRoutes");
-app.use("/api/invoices", invoiceRoutes);
+app.use(
+  "/api/quotations",
+  require("./routes/quotationRoutes")
+);
 
-const paymentRoutes = require("./routes/paymentRoutes");
-app.use("/api/payments", paymentRoutes);
+app.use(
+  "/api/invoices",
+  require("./routes/invoiceRoutes")
+);
 
-const receiptRoutes = require("./routes/receiptRoutes");
-app.use("/api/receipts", receiptRoutes);
+app.use(
+  "/api/payments",
+  require("./routes/paymentRoutes")
+);
 
-const customerReportRoutes = require("./routes/customerReportRoutes");
-app.use("/api/customer-report", customerReportRoutes);
+app.use(
+  "/api/receipts",
+  require("./routes/receiptRoutes")
+);
 
-const leadRoutes = require("./routes/leadRoutes");
-app.use("/api/leads", leadRoutes);
+app.use(
+  "/api/customer-report",
+  require("./routes/customerReportRoutes")
+);
 
-const dashboardRoutes = require("./routes/dashboardRoutes");
-app.use("/api/dashboard", dashboardRoutes);
+app.use(
+  "/api/leads",
+  require("./routes/leadRoutes")
+);
 
-// 7. Base API Route
+app.use(
+  "/api/dashboard",
+  require("./routes/dashboardRoutes")
+);
+
+// ===============================
+// HEALTH CHECK
+// ===============================
 app.get("/", (req, res) => {
-  res.send("Billing System API Running");
+  res.status(200).json({
+    success: true,
+    message: "Billing System API Running",
+    environment:
+      process.env.NODE_ENV || "development",
+  });
 });
 
-// 8. Global Error Handler Middleware (must be registered last)
+// ===============================
+// 404 HANDLER (Express 5 safe - no wildcard path string)
+// ===============================
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: "API Route Not Found",
+  });
+});
+
+// ===============================
+// ERROR HANDLER
+// ===============================
 app.use(errorMiddleware);
 
+// ===============================
+// START SERVER
+// ===============================
 const PORT = process.env.PORT || 5000;
+
 app.listen(PORT, () => {
-  logger.info(`Server running in ${process.env.NODE_ENV || "development"} mode on port ${PORT}`);
-});
+  logger.info(`
+===================================
+🚀 Billing API Started
+PORT: ${PORT}
+MODE: ${process.env.NODE_ENV}
+===================================
+`);
+});
