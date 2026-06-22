@@ -33,18 +33,20 @@ if (missingVars.length > 0) {
 }
 
 // ===============================
-// DB INIT & MIGRATIONS
+// DB INIT & MIGRATIONS — loaded but NOT executed yet
+// Execution moved to async startServer() below
 // ===============================
-require("./config/dbInit");
-require("./config/saasMigration")();
-require("./config/saasPhase2Migration")();
 
 const app = express();
 
 // ===============================
-// SECURITY
+// SECURITY — Helmet configured for cross-origin API
 // ===============================
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginOpenerPolicy: false,
+  contentSecurityPolicy: false,
+}));
 
 // ===============================
 // CORS CONFIG
@@ -57,6 +59,8 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
       "https://techrisebee.com",
       "https://www.techrisebee.com",
     ];
+
+console.log("[STARTUP] ALLOWED_ORIGINS:", allowedOrigins);
 
 const corsOptions = {
   origin: (origin, callback) => {
@@ -162,9 +166,14 @@ app.use(
 // ===============================
 // ROUTES
 // ===============================
+console.log("[STARTUP] Loading routes...");
+
+const authRoutes = require("./routes/authRoutes");
+console.log("[STARTUP] AUTH ROUTES LOADED");
+
 app.use(
   "/api/auth",
-  require("./routes/authRoutes")
+  authRoutes
 );
 
 app.use(
@@ -232,6 +241,8 @@ app.use(
   require("./routes/dashboardRoutes")
 );
 
+console.log("[STARTUP] All routes loaded successfully");
+
 // ===============================
 // HEALTH CHECK
 // ===============================
@@ -248,6 +259,7 @@ app.get("/", (req, res) => {
 // 404 HANDLER (Express 5 safe - no wildcard path string)
 // ===============================
 app.use((req, res) => {
+  console.log("[404]", req.method, req.originalUrl);
   res.status(404).json({
     success: false,
     message: "API Route Not Found",
@@ -260,16 +272,41 @@ app.use((req, res) => {
 app.use(errorMiddleware);
 
 // ===============================
-// START SERVER
+// ASYNC STARTUP — Migrations run with proper error handling
 // ===============================
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-  logger.info(`
+async function startServer() {
+  try {
+    console.log("[STARTUP] Running database initialization...");
+    const initializeDatabase = require("./config/dbInit");
+    await initializeDatabase();
+    console.log("[STARTUP] Database initialization complete");
+
+    console.log("[STARTUP] Running SaaS migration...");
+    const runSaaSMigration = require("./config/saasMigration");
+    await runSaaSMigration();
+    console.log("[STARTUP] SaaS migration complete");
+
+    console.log("[STARTUP] Running SaaS Phase 2 migration...");
+    const runPhase2Migration = require("./config/saasPhase2Migration");
+    await runPhase2Migration();
+    console.log("[STARTUP] SaaS Phase 2 migration complete");
+  } catch (err) {
+    console.error("[STARTUP] Migration failed (non-fatal, server will still start):", err.message);
+    // Do NOT process.exit — let the server start even if migrations fail
+    // The migrations are idempotent and will succeed on next restart
+  }
+
+  app.listen(PORT, () => {
+    logger.info(`
 ===================================
 🚀 Billing API Started
 PORT: ${PORT}
 MODE: ${process.env.NODE_ENV}
 ===================================
 `);
-});
+  });
+}
+
+startServer();

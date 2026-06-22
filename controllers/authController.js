@@ -7,6 +7,7 @@ const catchAsync = require("../utils/catchAsync");
 // @route   POST /api/auth/login
 // @access  Public
 exports.login = catchAsync(async (req, res, next) => {
+  console.log("[DEBUG] LOGIN CONTROLLER START", { username: req.body?.username, ip: req.ip });
   const { username, password } = req.body;
 
   // Validate request body

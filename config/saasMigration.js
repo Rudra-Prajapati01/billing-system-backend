@@ -115,7 +115,4 @@ async function runSaaSMigration() {
   }
 }
 
-// Execute migration
-runSaaSMigration();
-
 module.exports = runSaaSMigration;
