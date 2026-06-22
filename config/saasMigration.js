@@ -44,7 +44,8 @@ async function runSaaSMigration() {
       "payments",
       "receipts",
       "banks",
-      "terms_conditions"
+      "terms_conditions",
+      "company_profile"
     ];
 
     for (const tableName of tablesToAlter) {
