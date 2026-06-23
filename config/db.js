@@ -7,6 +7,9 @@ console.log("  Host:", process.env.DB_HOST);
 console.log("  User:", process.env.DB_USER);
 console.log("  Database:", process.env.DB_NAME);
 console.log("  Password:", process.env.DB_PASSWORD ? "***SET***" : "***MISSING***");
+console.log("ENV HOST =", process.env.DB_HOST);
+console.log("ENV USER =", process.env.DB_USER);
+console.log("ENV DB =", process.env.DB_NAME);
 
 const db = mysql.createPool({
   host: process.env.DB_HOST,
