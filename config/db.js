@@ -11,6 +11,7 @@ console.log("ENV HOST =", process.env.DB_HOST);
 console.log("ENV USER =", process.env.DB_USER);
 console.log("ENV DB =", process.env.DB_NAME);
 
+
 const db = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,

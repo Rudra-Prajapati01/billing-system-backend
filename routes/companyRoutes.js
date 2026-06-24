@@ -8,6 +8,7 @@ const {
   getCompanyProfile,
   createCompanyProfile,
   updateCompanyProfile,
+  getPublicCompanyProfile
 } = require("../controllers/companyController");
 
 // Configure Multer Storage
@@ -42,6 +43,7 @@ const uploadFields = upload.fields([
   { name: "signature", maxCount: 1 },
 ]);
 
+router.get("/public", getPublicCompanyProfile);
 router.get("/", protect, getCompanyProfile);
 router.post("/", protect, uploadFields, createCompanyProfile);
 router.put("/:id", protect, uploadFields, updateCompanyProfile);

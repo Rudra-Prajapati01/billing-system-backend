@@ -6,13 +6,49 @@ exports.getInvoices = async (req, res) => {
   try {
     const { filterSql, filterParams } = getTenantFilter(req, "i");
     const [rows] = await db.query(`
-      SELECT i.*, c.customer_name 
-      FROM invoices i 
-      LEFT JOIN customers c ON i.customer_id = c.id 
+      SELECT
+        i.*,
+        c.customer_name,
+        (
+          SELECT COALESCE(SUM(amount),0)
+          FROM payments
+          WHERE invoice_id = i.id
+        ) AS paid_amount,
+        (
+          COALESCE(i.grand_total,0) -
+          (
+            SELECT COALESCE(SUM(amount),0)
+            FROM payments
+            WHERE invoice_id = i.id
+          )
+        ) AS outstanding_amount
+      FROM invoices i
+      LEFT JOIN customers c ON i.customer_id = c.id
       WHERE 1=1 ${filterSql}
       ORDER BY i.id DESC
     `, filterParams);
-    res.json(rows);
+
+    const formatted = rows.map(row => {
+      const grandTotal = parseFloat(row.grand_total) || 0;
+      const paidAmount = parseFloat(row.paid_amount) || 0;
+      const outstanding = grandTotal - paidAmount;
+      
+      let status = "Pending";
+      if (paidAmount >= grandTotal) {
+        status = "Paid";
+      } else if (paidAmount > 0) {
+        status = "Partial";
+      }
+
+      return {
+        ...row,
+        paid_amount: paidAmount,
+        outstanding_amount: outstanding,
+        status: status
+      };
+    });
+
+    res.json(formatted);
   } catch (err) {
     console.error("Error in getInvoices:", err);
     res.status(500).json({ success: false, message: "Failed to fetch invoices: " + err.message });
@@ -179,11 +215,28 @@ exports.getInvoiceById = async (req, res) => {
       parseFloat(header.grand_total || 0) -
       parseFloat(header.paid_amount || 0);
 
+    const grandTotal = parseFloat(header.grand_total) || 0;
+    const paidAmount = header.paid_amount;
+    if (paidAmount >= grandTotal) {
+      header.status = "Paid";
+    } else if (paidAmount > 0) {
+      header.status = "Partial";
+    } else {
+      header.status = "Pending";
+    }
+
+    const [companyResult] = await db.query(
+      `SELECT * FROM company_profile WHERE company_id = ? LIMIT 1`,
+      [header.company_id]
+    );
+    const companyInfo = companyResult[0] || null;
+
     res.json({
       success: true,
       header,
       items,
-      payments
+      payments,
+      companyInfo
     });
 
   } catch (err) {

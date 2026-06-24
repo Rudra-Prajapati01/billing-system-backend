@@ -1,15 +1,32 @@
 const db = require("../config/db");
 const { getTenantFilter, getInsertCompanyId } = require("../utils/tenantHelper");
 
+// Fetch public company profile (for login page logo)
+exports.getPublicCompanyProfile = async (req, res) => {
+  try {
+    const [profileRows] = await db.query(`SELECT logo FROM company_profile ORDER BY id ASC LIMIT 1`);
+    res.json({
+      profile: profileRows[0] || null
+    });
+  } catch (err) {
+    console.error("Error in getPublicCompanyProfile:", err);
+    res.status(500).json({ error: "Failed to fetch public company profile", details: err.message });
+  }
+};
+
 // Fetch company profile and list of banks
 exports.getCompanyProfile = async (req, res) => {
   try {
-    const { filterSql, filterParams } = getTenantFilter(req);
+    const { filterSql, filterParams, companyId } = getTenantFilter(req);
     const [profileRows] = await db.query(`SELECT * FROM company_profile WHERE 1=1 ${filterSql} LIMIT 1`, filterParams);
     const [bankRows] = await db.query(`SELECT id, bank_name, account_holder_name, account_number, branch_name FROM banks WHERE 1=1 ${filterSql} ORDER BY id ASC`, filterParams);
     
+    const profile = profileRows[0] || null;
+    console.log("Selected Company ID", companyId);
+    console.log("Company Profile Loaded", profile);
+
     res.json({
-      profile: profileRows[0] || null,
+      profile: profile,
       banks: bankRows
     });
   } catch (err) {
@@ -134,14 +151,45 @@ exports.updateCompanyProfile = async (req, res) => {
     const { filterSql, filterParams } = getTenantFilter(req);
 
     // Retrieve existing image paths from database to retain them if no new files are uploaded
-    const [existing] = await db.query(`SELECT logo, signature FROM company_profile WHERE id = ? ${filterSql}`, [id, ...filterParams]);
-    if (existing.length === 0) {
+    const [existingRows] = await db.query(`SELECT logo, signature FROM company_profile WHERE id = ? ${filterSql}`, [id, ...filterParams]);
+    if (existingRows.length === 0) {
       return res.status(404).json({ error: "Company Profile record not found or access denied" });
     }
+    const existing = existingRows[0];
+
+    console.log("FILES", req.files);
 
     // Multer uploads
-    const logoPath = req.files?.logo?.[0] ? `/uploads/${req.files.logo[0].filename}` : existing[0].logo;
-    const signaturePath = req.files?.signature?.[0] ? `/uploads/${req.files.signature[0].filename}` : existing[0].signature;
+    const logoPath = req.files?.logo?.[0] ? `/uploads/${req.files.logo[0].filename}` : existing.logo;
+    const signaturePath = req.files?.signature?.[0] ? `/uploads/${req.files.signature[0].filename}` : existing.signature;
+
+    console.log("LOGO PATH", logoPath);
+    console.log("SIGNATURE PATH", signaturePath);
+
+    const updateData = {
+      company_name: company_name.trim(),
+      owner_name: owner_name ? owner_name.trim() : null,
+      gst_number: gst_number ? gst_number.trim() : null,
+      legal_name: legal_name ? legal_name.trim() : null,
+      pan_number: pan_number ? pan_number.trim() : null,
+      email: email ? email.trim() : null,
+      website: website ? website.trim() : null,
+      address: address ? address.trim() : null,
+      city: city ? city.trim() : null,
+      state: state ? state.trim() : null,
+      pincode: pincode ? pincode.trim() : null,
+      contact_no_1: contact_no_1 ? contact_no_1.trim() : null,
+      contact_no_2: contact_no_2 ? contact_no_2.trim() : null,
+      logoPath,
+      signaturePath,
+      bank_id: bank_id ? parseInt(bank_id) : null,
+      show_contact1_bill: show_contact1_bill === "true" || show_contact1_bill === true || show_contact1_bill === 1 ? 1 : 0,
+      show_contact2_bill: show_contact2_bill === "true" || show_contact2_bill === true || show_contact2_bill === 1 ? 1 : 0,
+      show_email_bill: show_email_bill === "true" || show_email_bill === true || show_email_bill === 1 ? 1 : 0,
+      show_website_bill: show_website_bill === "true" || show_website_bill === true || show_website_bill === 1 ? 1 : 0,
+      id
+    };
+    console.log("UPDATE DATA", updateData);
 
     await db.query(
       `UPDATE company_profile SET

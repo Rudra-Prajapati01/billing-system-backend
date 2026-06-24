@@ -225,8 +225,16 @@ exports.getQuotationById = async (req, res) => {
     const [headerResult] = await db.query(`SELECT * FROM quotations WHERE id = ? ${filterSql}`, [id, ...filterParams]);
     if (headerResult.length === 0) return res.status(404).json({ success: false, message: "Quotation not found." });
 
+    const header = headerResult[0];
     const [items] = await db.query(`SELECT * FROM quotation_items WHERE quotation_id = ? ${filterSql}`, [id, ...filterParams]);
-    res.json({ success: true, header: headerResult[0], items });
+    
+    const [companyResult] = await db.query(
+      `SELECT * FROM company_profile WHERE company_id = ? LIMIT 1`,
+      [header.company_id]
+    );
+    const companyInfo = companyResult[0] || null;
+
+    res.json({ success: true, header, items, companyInfo });
   } catch (err) {
     console.error("Error in getQuotationById:", err);
     res.status(500).json({ success: false, message: "Failed to fetch quotation details: " + err.message });
