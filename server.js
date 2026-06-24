@@ -10,9 +10,6 @@ const errorMiddleware = require("./middleware/errorMiddleware");
 
 require("dotenv").config();
 
-// ===============================
-// ENV CHECK
-// ===============================
 const requiredEnvVars = [
   "JWT_SECRET",
   "DB_HOST",

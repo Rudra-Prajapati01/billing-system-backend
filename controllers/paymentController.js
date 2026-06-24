@@ -28,7 +28,7 @@ exports.addPayment = catchAsync(async (req, res, next) => {
     FROM invoices i
     LEFT JOIN payments p ON p.invoice_id = i.id
     WHERE i.id = ? ${filterSql}
-    GROUP BY i.id
+    GROUP BY i.id, i.grand_total, i.company_id
   `, [invoice_id, ...filterParams]);
 
   if (summary.length === 0) {
@@ -85,7 +85,7 @@ exports.getInvoiceSummary = catchAsync(async (req, res, next) => {
     LEFT JOIN customers c ON i.customer_id = c.id
     LEFT JOIN payments p ON p.invoice_id = i.id
     WHERE 1=1 ${filterSql}
-    GROUP BY i.id
+    GROUP BY i.id, i.invoice_no, i.invoice_date, c.customer_name, i.grand_total
     ORDER BY i.id DESC
   `, filterParams);
   res.json(invoices);

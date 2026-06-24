@@ -8,6 +8,6 @@ router.get("/", protect, paymentController.getPayments);
 router.post("/", protect, paymentController.addPayment);
 router.put("/:id", protect, paymentController.updatePayment);
 router.delete("/:id", protect, paymentController.deletePayment);
-router.get("/invoice-summary", protect, paymentController.getInvoiceSummary);
+router.get("/summary", protect, paymentController.getInvoiceSummary);
 
 module.exports = router;
