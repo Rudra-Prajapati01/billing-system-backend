@@ -160,9 +160,141 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
 }
 
-// Serve uploaded files with explicit CORS headers on every response.
-// setHeaders fires per-file inside express.static, guaranteeing headers
-// are present for fetch() calls made by the PDF generator (jsPDF).
+// User-Requested Startup Logs
+console.log("UPLOADS DIR:", uploadsDir);
+console.log("UPLOADS ABSOLUTE:", path.resolve(uploadsDir));
+console.log("UPLOADS EXISTS:", fs.existsSync(uploadsDir));
+console.log("PARENT UPLOADS EXISTS:", fs.existsSync(path.join(__dirname, "../uploads")));
+
+// Comprehensive production server audit route
+app.get("/api/production-audit", async (req, res) => {
+  try {
+    const db = require("./config/db");
+    const [profiles] = await db.query("SELECT id, company_name, logo, signature FROM company_profile");
+
+    // Scan multiple potential uploads directories
+    const potentialDirs = {
+      currentDirUploads: path.resolve(path.join(__dirname, "uploads")),
+      parentDirUploads: path.resolve(path.join(__dirname, "../uploads")),
+      grandparentDirUploads: path.resolve(path.join(__dirname, "../../uploads")),
+    };
+
+    const directoriesInfo = {};
+    const allPhysicalFiles = {};
+
+    Object.keys(potentialDirs).forEach(key => {
+      const dirPath = potentialDirs[key];
+      const exists = fs.existsSync(dirPath);
+      let files = [];
+      if (exists) {
+        try {
+          files = fs.readdirSync(dirPath);
+        } catch (e) {
+          files = [`Error: ${e.message}`];
+        }
+      }
+      directoriesInfo[key] = {
+        path: dirPath,
+        exists,
+        filesCount: files.length,
+        permissions: exists ? fs.statSync(dirPath).mode.toString(8) : null,
+      };
+      allPhysicalFiles[key] = files;
+    });
+
+    // Check where database files actually exist on disk
+    const auditResults = profiles.map(profile => {
+      const logoFilename = profile.logo ? path.basename(profile.logo) : null;
+      const signatureFilename = profile.signature ? path.basename(profile.signature) : null;
+
+      const logoLocations = {};
+      const signatureLocations = {};
+
+      Object.keys(potentialDirs).forEach(key => {
+        const dirPath = potentialDirs[key];
+        logoLocations[key] = logoFilename ? fs.existsSync(path.join(dirPath, logoFilename)) : false;
+        signatureLocations[key] = signatureFilename ? fs.existsSync(path.join(dirPath, signatureFilename)) : false;
+      });
+
+      return {
+        id: profile.id,
+        companyName: profile.company_name,
+        dbLogoPath: profile.logo,
+        dbSignaturePath: profile.signature,
+        logoFilename,
+        signatureFilename,
+        logoLocations,
+        signatureLocations,
+      };
+    });
+
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      directoriesInfo,
+      allPhysicalFiles,
+      databaseAudit: auditResults,
+      processInfo: {
+        cwd: process.cwd(),
+        uid: process.uid ? process.uid : "N/A",
+        gid: process.gid ? process.gid : "N/A",
+        envNodeEnv: process.env.NODE_ENV
+      }
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err.message,
+      stack: err.stack
+    });
+  }
+});
+
+// Custom uploads route searching in multiple directories
+app.get("/uploads/:filename", (req, res, next) => {
+  const filename = path.basename(req.params.filename);
+  
+  const potentialDirs = [
+    path.join(__dirname, "uploads"),
+    path.join(__dirname, "../uploads"),
+    path.join(__dirname, "../../uploads"),
+  ];
+
+  let resolvedFilePath = null;
+
+  for (const dir of potentialDirs) {
+    const testPath = path.join(dir, filename);
+    if (fs.existsSync(testPath)) {
+      resolvedFilePath = testPath;
+      break;
+    }
+  }
+
+  // User-Requested Route Logs
+  console.log("REQUESTED FILE:", resolvedFilePath || path.join(potentialDirs[0], filename));
+  console.log("FILE EXISTS:", resolvedFilePath !== null);
+
+  if (resolvedFilePath) {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    return res.sendFile(resolvedFilePath, (err) => {
+      if (err) {
+        console.error("Error sending file:", err.message);
+        if (!res.headersSent) {
+          res.status(500).json({
+            success: false,
+            message: "Error serving file",
+            error: err.message,
+          });
+        }
+      }
+    });
+  } else {
+    return next();
+  }
+});
+
+// Fallback to express.static for any other requests under /uploads
 app.use(
   "/uploads",
   express.static(uploadsDir, {
@@ -172,6 +304,7 @@ app.use(
     }
   })
 );
+
 
 
 // ===============================
