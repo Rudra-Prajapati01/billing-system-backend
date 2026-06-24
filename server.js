@@ -342,6 +342,60 @@ app.get("/api/uploads/:filename", (req, res, next) => {
   }
 });
 
+// Endpoint to return uploads as Base64 JSON to bypass Hostinger CDN CORS filters completely
+app.get("/api/logo-base64/:filename", (req, res) => {
+  const filename = path.basename(req.params.filename);
+  
+  const potentialDirs = [
+    path.join(__dirname, "uploads"),
+    path.join(__dirname, "../uploads"),
+    path.join(__dirname, "../../uploads"),
+  ];
+
+  let resolvedFilePath = null;
+
+  for (const dir of potentialDirs) {
+    const testPath = path.join(dir, filename);
+    if (fs.existsSync(testPath)) {
+      resolvedFilePath = testPath;
+      break;
+    }
+  }
+
+  if (resolvedFilePath) {
+    try {
+      const fileBuffer = fs.readFileSync(resolvedFilePath);
+      const ext = path.extname(filename).toLowerCase();
+      let mimeType = "image/png"; // default
+      if (ext === ".jpg" || ext === ".jpeg") mimeType = "image/jpeg";
+      else if (ext === ".gif") mimeType = "image/gif";
+      else if (ext === ".webp") mimeType = "image/webp";
+
+      const base64Data = `data:${mimeType};base64,${fileBuffer.toString("base64")}`;
+      
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+      
+      return res.json({
+        success: true,
+        image: base64Data
+      });
+    } catch (err) {
+      console.error("Error converting file to base64:", err.message);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to process image file",
+        error: err.message
+      });
+    }
+  } else {
+    return res.status(404).json({
+      success: false,
+      message: "Image file not found"
+    });
+  }
+});
+
 // Fallback to express.static for any other requests under /uploads
 app.use(
   "/uploads",
