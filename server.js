@@ -160,10 +160,19 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
 }
 
+// Serve uploaded files with explicit CORS headers on every response.
+// setHeaders fires per-file inside express.static, guaranteeing headers
+// are present for fetch() calls made by the PDF generator (jsPDF).
 app.use(
   "/uploads",
-  express.static(uploadsDir)
+  express.static(uploadsDir, {
+    setHeaders: (res) => {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    }
+  })
 );
+
 
 // ===============================
 // ROUTES
