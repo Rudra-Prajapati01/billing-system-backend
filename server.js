@@ -294,6 +294,54 @@ app.get("/uploads/:filename", (req, res, next) => {
   }
 });
 
+// Serve uploaded images through Express API with proper CORS/CORP headers
+// to bypass CDN/web-server caching and static route hijack issues.
+app.get("/api/uploads/:filename", (req, res, next) => {
+  const filename = path.basename(req.params.filename);
+  
+  const potentialDirs = [
+    path.join(__dirname, "uploads"),
+    path.join(__dirname, "../uploads"),
+    path.join(__dirname, "../../uploads"),
+  ];
+
+  let resolvedFilePath = null;
+
+  for (const dir of potentialDirs) {
+    const testPath = path.join(dir, filename);
+    if (fs.existsSync(testPath)) {
+      resolvedFilePath = testPath;
+      break;
+    }
+  }
+
+  // Debug logging
+  console.log("REQUESTED API FILE:", resolvedFilePath || path.join(potentialDirs[0], filename));
+  console.log("API FILE EXISTS:", resolvedFilePath !== null);
+
+  if (resolvedFilePath) {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    return res.sendFile(resolvedFilePath, (err) => {
+      if (err) {
+        console.error("Error sending API file:", err.message);
+        if (!res.headersSent) {
+          res.status(500).json({
+            success: false,
+            message: "Error serving file",
+            error: err.message,
+          });
+        }
+      }
+    });
+  } else {
+    return res.status(404).json({
+      success: false,
+      message: "Uploaded file not found",
+    });
+  }
+});
+
 // Fallback to express.static for any other requests under /uploads
 app.use(
   "/uploads",
@@ -304,6 +352,7 @@ app.use(
     }
   })
 );
+
 
 
 
