@@ -507,6 +507,11 @@ async function startServer() {
     const runPhase2Migration = require("./config/saasPhase2Migration");
     await runPhase2Migration();
     console.log("[STARTUP] SaaS Phase 2 migration complete");
+
+    console.log("[STARTUP] Running SaaS Phase 3 migration...");
+    const runPhase3Migration = require("./config/saasPhase3Migration");
+    await runPhase3Migration();
+    console.log("[STARTUP] SaaS Phase 3 migration complete");
   } catch (err) {
     // NON-FATAL: Log the error but do NOT kill the process.
     // The server must start even if DB is temporarily unreachable.

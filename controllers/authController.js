@@ -156,3 +156,112 @@ exports.getMe = catchAsync(async (req, res, next) => {
   });
 });
 
+// @desc    Impersonate a company
+// @route   POST /api/auth/impersonate
+// @access  Private (SuperAdmin only)
+exports.impersonate = catchAsync(async (req, res, next) => {
+  const { company_id } = req.body;
+  if (!company_id) {
+    return res.status(400).json({ success: false, message: "Company ID is required" });
+  }
+
+  // Verify the requester is a SuperAdmin
+  if (req.user.role !== "SuperAdmin") {
+    return res.status(403).json({ success: false, message: "Only SuperAdmins can impersonate companies" });
+  }
+
+  // Verify the company exists
+  const [companies] = await db.query(`SELECT company_name, status FROM companies WHERE id = ?`, [company_id]);
+  if (companies.length === 0) {
+    return res.status(404).json({ success: false, message: "Company not found" });
+  }
+  const company = companies[0];
+
+  // Create impersonation JWT
+  const token = jwt.sign(
+    { 
+      id: req.user.id, 
+      role: "SuperAdmin", 
+      company_id: company_id,
+      originalSuperAdminId: req.user.id,
+      impersonation: true
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: "12h" }
+  );
+
+  const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "";
+  const userAgent = req.headers["user-agent"] || "";
+
+  // Insert into impersonation_logs
+  const [logResult] = await db.query(
+    `INSERT INTO impersonation_logs (super_admin_id, company_id, ip_address, user_agent) VALUES (?, ?, ?, ?)`,
+    [req.user.id, company_id, ip, userAgent]
+  );
+
+  res.json({
+    success: true,
+    token,
+    logId: logResult.insertId,
+    user: {
+      id: req.user.id,
+      name: req.user.name,
+      role: "SuperAdmin",
+      company_id: company_id,
+      company_name: company.company_name,
+      impersonation: true
+    }
+  });
+});
+
+// @desc    Exit impersonation
+// @route   POST /api/auth/exit-impersonation
+// @access  Private
+exports.exitImpersonation = catchAsync(async (req, res, next) => {
+  let token;
+  if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
+    token = req.headers.authorization.split(" ")[1];
+  }
+
+  if (!token) {
+    return res.status(401).json({ success: false, message: "No token provided." });
+  }
+
+  const decoded = jwt.decode(token);
+  if (!decoded || !decoded.impersonation) {
+    return res.status(400).json({ success: false, message: "Not in impersonation mode" });
+  }
+
+  // Update log
+  const { logId } = req.body;
+  if (logId) {
+    await db.query(`UPDATE impersonation_logs SET logout_time = CURRENT_TIMESTAMP WHERE id = ?`, [logId]);
+  } else {
+    await db.query(
+      `UPDATE impersonation_logs SET logout_time = CURRENT_TIMESTAMP 
+       WHERE super_admin_id = ? AND company_id = ? AND logout_time IS NULL 
+       ORDER BY login_time DESC LIMIT 1`,
+      [decoded.originalSuperAdminId, decoded.company_id]
+    );
+  }
+
+  // Issue new normal SuperAdmin token
+  const newToken = jwt.sign(
+    { id: decoded.originalSuperAdminId, role: "SuperAdmin", company_id: null },
+    process.env.JWT_SECRET,
+    { expiresIn: "24h" }
+  );
+
+  res.json({
+    success: true,
+    token: newToken,
+    user: {
+      id: decoded.originalSuperAdminId,
+      name: req.user.name,
+      role: "SuperAdmin",
+      company_id: null,
+      company_name: null,
+      impersonation: false
+    }
+  });
+});

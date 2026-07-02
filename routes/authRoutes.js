@@ -7,5 +7,7 @@ const { protect } = require("../middleware/authMiddleware");
 router.post("/login", authController.login);
 router.post("/logout", authController.logout);
 router.get("/me", protect, authController.getMe);
+router.post("/impersonate", protect, authController.impersonate);
+router.post("/exit-impersonation", protect, authController.exitImpersonation);
 
 module.exports = router;

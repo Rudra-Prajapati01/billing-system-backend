@@ -49,23 +49,50 @@ async function initializeDatabase() {
     `);
     console.log("Table 'login_logs' verified/created.");
 
-    // 4. Seed default SuperAdmin user 'rudra' if it does not exist
+    // 4. Create audit_logs table
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        company_id INT,
+        role VARCHAR(50),
+        action VARCHAR(255) NOT NULL,
+        ip_address VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log("Table 'audit_logs' verified/created.");
+
+    // 5. Seed default SuperAdmin user 'rudra' if it does not exist
     const [users] = await db.query("SELECT id FROM users WHERE username = ?", ["rudra"]);
     if (users.length === 0) {
       const saltRounds = 10;
-      const hashedPassword = await bcrypt.hash("rudra123", saltRounds);
+      const hashedPassword = await bcrypt.hash("Rudra@123", saltRounds);
 
       await db.query(
-        `INSERT INTO users (name, username, password, role, status, company_id) 
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        ["Rudra", "rudra", hashedPassword, "SuperAdmin", "Active", null]
+        `INSERT INTO users (name, username, password, role, status) 
+         VALUES (?, ?, ?, ?, ?)`,
+        ["Rudra Prajapati", "rudra", hashedPassword, "SuperAdmin", "Active"]
       );
-      console.log("Default SuperAdmin user 'rudra' seeded successfully.");
+      console.log("Default SuperAdmin user 'rudra' created successfully.");
     } else {
       console.log("Default SuperAdmin user 'rudra' already exists.");
     }
 
-    console.log("Database initialization completed successfully.");
+    // 6. Check and add is_default to terms_conditions if it doesn't exist
+    const [cols] = await db.query(`
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() 
+        AND TABLE_NAME = 'terms_conditions' 
+        AND COLUMN_NAME = 'is_default'
+    `);
+    if (cols.length === 0) {
+      await db.query(`ALTER TABLE terms_conditions ADD COLUMN is_default BOOLEAN DEFAULT FALSE`);
+      console.log("Added column 'is_default' to table 'terms_conditions'.");
+    }
+
+    console.log("Database initialized successfully");
   } catch (error) {
     console.error("Database initialization failed:", error);
     throw error;

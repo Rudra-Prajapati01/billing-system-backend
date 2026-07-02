@@ -1,8 +1,9 @@
 const db = require("../config/db");
-const { getTenantFilter } = require("../utils/tenantHelper");
+const { getTenantFilter, requireBusinessAccess } = require("../utils/tenantHelper");
 
 // 1. Get Customer Dropdown List
 exports.getCustomers = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const { filterSql, filterParams } = getTenantFilter(req);
     const query = `SELECT id, customer_name, company_name FROM customers WHERE 1=1 ${filterSql} ORDER BY company_name ASC`;
@@ -16,6 +17,7 @@ exports.getCustomers = async (req, res) => {
 
 // 2. Get Customer Summary Stats
 exports.getSummary = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const { customerId } = req.params;
 
@@ -61,6 +63,7 @@ exports.getSummary = async (req, res) => {
 
 // 3. Get Combined Ledger
 exports.getLedger = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const { customerId } = req.params;
     const { fromDate, toDate } = req.query;

@@ -69,6 +69,13 @@ exports.protect = async (req, res, next) => {
       }
     }
 
+    // Support impersonation tokens
+    if (decoded.impersonation) {
+      user.company_id = decoded.company_id;
+      user.impersonation = true;
+      user.originalSuperAdminId = decoded.originalSuperAdminId;
+    }
+
     // Grant access to protected route by attaching user details to req
     req.user = user;
     next();

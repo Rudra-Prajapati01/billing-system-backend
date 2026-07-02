@@ -1,8 +1,9 @@
 const db = require("../config/db");
-const { getTenantFilter, getInsertCompanyId } = require("../utils/tenantHelper");
+const { getTenantFilter, requireBusinessAccess, getInsertCompanyId } = require("../utils/tenantHelper");
 
 // Fetch all invoices (ordered by id DESC)
 exports.getInvoices = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const { filterSql, filterParams } = getTenantFilter(req, "i");
     const [rows] = await db.query(`
@@ -57,6 +58,7 @@ exports.getInvoices = async (req, res) => {
 
 // Generate the next invoice number
 exports.getNextInvoiceNumber = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const { filterSql, filterParams } = getTenantFilter(req);
     const [rows] = await db.query(`SELECT MAX(invoice_no) AS max_no FROM invoices WHERE 1=1 ${filterSql}`, filterParams);
@@ -80,6 +82,7 @@ exports.getNextInvoiceNumber = async (req, res) => {
 
 // Add Invoice (with items in a Transaction)
 exports.addInvoice = async (req, res) => {
+  requireBusinessAccess(req);
   let connection;
   try {
     connection = await db.getConnection();
@@ -87,7 +90,7 @@ exports.addInvoice = async (req, res) => {
 
     let {
       invoice_no, invoice_date, customer_id, bank_id, terms_id,
-      subtotal, gst_amount, grand_total, notes, items
+      subtotal, gst_amount, grand_total, items
     } = req.body;
 
     if (!invoice_no || !invoice_date || !customer_id || !items || items.length === 0) {
@@ -103,9 +106,9 @@ exports.addInvoice = async (req, res) => {
     }
 
     const [headerResult] = await connection.query(
-      `INSERT INTO invoices (company_id, invoice_no, invoice_date, customer_id, subtotal, gst_amount, grand_total, notes, bank_id, terms_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [companyId, invoice_no.trim(), invoice_date, customer_id, subtotal || 0, gst_amount || 0, grand_total || 0, notes ? notes.trim() : null, bank_id || null, terms_id || null]
+      `INSERT INTO invoices (company_id, invoice_no, invoice_date, customer_id, subtotal, gst_amount, grand_total, bank_id, terms_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [companyId, invoice_no.trim(), invoice_date, customer_id, subtotal || 0, gst_amount || 0, grand_total || 0, bank_id || null, terms_id || null]
     );
     const invoiceId = headerResult.insertId;
 
@@ -132,6 +135,7 @@ exports.addInvoice = async (req, res) => {
 
 // Delete Invoice
 exports.deleteInvoice = async (req, res) => {
+  requireBusinessAccess(req);
   const { id } = req.params;
   let connection;
   try {
@@ -157,6 +161,7 @@ exports.deleteInvoice = async (req, res) => {
 
 // Fetch invoice details with items & payment history
 exports.getInvoiceById = async (req, res) => {
+  requireBusinessAccess(req);
   const { id } = req.params;
 
   try {
@@ -252,13 +257,14 @@ exports.getInvoiceById = async (req, res) => {
 
 // Update Invoice
 exports.updateInvoice = async (req, res) => {
+  requireBusinessAccess(req);
   const { id } = req.params;
   let connection;
   try {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
-    let { invoice_no, invoice_date, customer_id, bank_id, terms_id, subtotal, gst_amount, grand_total, notes, items } = req.body;
+    let { invoice_no, invoice_date, customer_id, bank_id, terms_id, subtotal, gst_amount, grand_total, items } = req.body;
 
     if (!invoice_no || !invoice_date || !customer_id || !items || items.length === 0) {
       return res.status(400).json({ success: false, message: "Required fields are missing." });
@@ -269,9 +275,9 @@ exports.updateInvoice = async (req, res) => {
 
     const [updateResult] = await connection.query(
       `UPDATE invoices 
-       SET invoice_no = ?, invoice_date = ?, customer_id = ?, subtotal = ?, gst_amount = ?, grand_total = ?, notes = ?, bank_id = ?, terms_id = ?
+       SET invoice_no = ?, invoice_date = ?, customer_id = ?, subtotal = ?, gst_amount = ?, grand_total = ?, bank_id = ?, terms_id = ?
        WHERE id = ? ${filterSql}`,
-      [invoice_no.trim(), invoice_date, customer_id, subtotal || 0, gst_amount || 0, grand_total || 0, notes ? notes.trim() : null, bank_id || null, terms_id || null, id, ...filterParams]
+      [invoice_no.trim(), invoice_date, customer_id, subtotal || 0, gst_amount || 0, grand_total || 0, bank_id || null, terms_id || null, id, ...filterParams]
     );
 
     if (updateResult.affectedRows === 0) {

@@ -1,9 +1,10 @@
 const db = require("../config/db");
-const { getTenantFilter } = require("../utils/tenantHelper");
+const { getTenantFilter, requireBusinessAccess } = require("../utils/tenantHelper");
 const catchAsync = require("../utils/catchAsync");
 
 // 1. Fetch all payments
 exports.getPayments = catchAsync(async (req, res, next) => {
+  requireBusinessAccess(req);
   const { filterSql, filterParams } = getTenantFilter(req, "p");
   const [payments] = await db.query(`
     SELECT p.*, i.invoice_no, c.customer_name 
@@ -18,6 +19,7 @@ exports.getPayments = catchAsync(async (req, res, next) => {
 
 // 2. Add a new payment
 exports.addPayment = catchAsync(async (req, res, next) => {
+  requireBusinessAccess(req);
   const { invoice_id, payment_date, amount, payment_mode, transaction_ref, remarks } = req.body;
 
   const { filterSql, filterParams } = getTenantFilter(req, "i");
@@ -62,6 +64,7 @@ exports.addPayment = catchAsync(async (req, res, next) => {
 
 // 3. Delete a payment
 exports.deletePayment = catchAsync(async (req, res, next) => {
+  requireBusinessAccess(req);
   const { id } = req.params;
   const { filterSql, filterParams } = getTenantFilter(req);
   
@@ -76,6 +79,7 @@ exports.deletePayment = catchAsync(async (req, res, next) => {
 
 // 4. Get Invoice Outstanding Summary
 exports.getInvoiceSummary = catchAsync(async (req, res, next) => {
+  requireBusinessAccess(req);
   const { filterSql, filterParams } = getTenantFilter(req, "i");
   const [invoices] = await db.query(`
     SELECT i.id, i.invoice_no, i.invoice_date, c.customer_name, COALESCE(i.grand_total, 0) as grand_total,
@@ -93,6 +97,7 @@ exports.getInvoiceSummary = catchAsync(async (req, res, next) => {
 
 // 5. Update a payment (with overpayment validation guard)
 exports.updatePayment = catchAsync(async (req, res, next) => {
+  requireBusinessAccess(req);
   const { id } = req.params;
   const { payment_date, amount, payment_mode, transaction_ref, remarks } = req.body;
 

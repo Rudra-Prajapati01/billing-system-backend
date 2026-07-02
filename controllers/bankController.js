@@ -1,8 +1,9 @@
 const db = require("../config/db");
-const { getTenantFilter, getInsertCompanyId } = require("../utils/tenantHelper");
+const { getTenantFilter, requireBusinessAccess, getInsertCompanyId } = require("../utils/tenantHelper");
 
 // Get all banks (ordered by id DESC)
 exports.getBanks = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const { filterSql, filterParams } = getTenantFilter(req);
     const [rows] = await db.query(`SELECT * FROM banks WHERE 1=1 ${filterSql} ORDER BY id DESC`, filterParams);
@@ -15,6 +16,7 @@ exports.getBanks = async (req, res) => {
 
 // Add Bank Account
 exports.addBank = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     let { bank_name, account_holder_name, account_number, ifsc_code, branch_name } = req.body;
 
@@ -78,6 +80,7 @@ exports.addBank = async (req, res) => {
 
 // Update Bank Account
 exports.updateBank = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const { id } = req.params;
     let { bank_name, account_holder_name, account_number, ifsc_code, branch_name } = req.body;
@@ -144,6 +147,7 @@ exports.updateBank = async (req, res) => {
 
 // Delete Bank Account
 exports.deleteBank = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const { id } = req.params;
 

@@ -1,8 +1,9 @@
 const db = require("../config/db");
-const { getTenantFilter, getInsertCompanyId } = require("../utils/tenantHelper");
+const { getTenantFilter, requireBusinessAccess, getInsertCompanyId } = require("../utils/tenantHelper");
 
 // Get all terms (ordered by id DESC)
 exports.getTerms = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const { filterSql, filterParams } = getTenantFilter(req);
     const [rows] = await db.query(`SELECT * FROM terms_conditions WHERE 1=1 ${filterSql} ORDER BY id DESC`, filterParams);
@@ -15,13 +16,15 @@ exports.getTerms = async (req, res) => {
 
 // Add Terms & Conditions
 exports.addTerms = async (req, res) => {
+  requireBusinessAccess(req);
   try {
-    let { title, description, status } = req.body;
+    let { title, description, status, is_default } = req.body;
 
     // 1. Trim input values (keeping internal line breaks in description)
     title = title ? title.trim() : "";
     description = description ? description.trim() : "";
     status = status ? status.trim() : "Active";
+    is_default = is_default === true || is_default === "true" || is_default === 1;
 
     // 2. Validate required fields
     if (!title || !description) {
@@ -43,10 +46,18 @@ exports.addTerms = async (req, res) => {
       });
     }
 
-    // 4. Save to database
+    // 4. If this is default, reset others
+    if (is_default) {
+      await db.query(
+        `UPDATE terms_conditions SET is_default = FALSE WHERE 1=1 ${filterSql}`,
+        [...filterParams]
+      );
+    }
+
+    // 5. Save to database
     const [result] = await db.query(
-      "INSERT INTO terms_conditions (company_id, title, description, status) VALUES (?, ?, ?, ?)",
-      [companyId, title, description, status]
+      "INSERT INTO terms_conditions (company_id, title, description, status, is_default) VALUES (?, ?, ?, ?, ?)",
+      [companyId, title, description, status, is_default]
     );
 
     res.status(201).json({
@@ -62,14 +73,16 @@ exports.addTerms = async (req, res) => {
 
 // Update Terms & Conditions
 exports.updateTerms = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const { id } = req.params;
-    let { title, description, status } = req.body;
+    let { title, description, status, is_default } = req.body;
 
     // 1. Trim input values (keeping internal line breaks in description)
     title = title ? title.trim() : "";
     description = description ? description.trim() : "";
     status = status ? status.trim() : "Active";
+    is_default = is_default === true || is_default === "true" || is_default === 1;
 
     // 2. Validate required fields
     if (!title || !description) {
@@ -90,10 +103,18 @@ exports.updateTerms = async (req, res) => {
       });
     }
 
-    // 4. Update in database
+    // 4. If this is default, reset others
+    if (is_default) {
+      await db.query(
+        `UPDATE terms_conditions SET is_default = FALSE WHERE 1=1 ${filterSql}`,
+        [...filterParams]
+      );
+    }
+
+    // 5. Update in database
     const [result] = await db.query(
-      `UPDATE terms_conditions SET title = ?, description = ?, status = ? WHERE id = ? ${filterSql}`,
-      [title, description, status, id, ...filterParams]
+      `UPDATE terms_conditions SET title = ?, description = ?, status = ?, is_default = ? WHERE id = ? ${filterSql}`,
+      [title, description, status, is_default, id, ...filterParams]
     );
 
     if (result.affectedRows === 0) {
@@ -112,6 +133,7 @@ exports.updateTerms = async (req, res) => {
 
 // Delete Terms & Conditions
 exports.deleteTerms = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const { id } = req.params;
 

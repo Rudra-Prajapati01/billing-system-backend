@@ -1,11 +1,17 @@
 const db = require("../config/db");
+const { logAudit } = require("../utils/auditLogger");
 
 // @desc    Get all tenant companies
 // @route   GET /api/tenant-companies
 // @access  Private (SuperAdmin only)
 exports.getCompanies = async (req, res) => {
   try {
-    const [rows] = await db.query("SELECT * FROM companies ORDER BY id DESC");
+    const [rows] = await db.query(`
+      SELECT c.id, c.company_name, c.contact_person, c.email, c.mobile, c.status, c.created_at, 
+      (SELECT COUNT(id) FROM users WHERE company_id = c.id) as total_users
+      FROM companies c
+      ORDER BY c.created_at DESC
+    `);
     res.json({
       success: true,
       data: rows,
@@ -21,8 +27,9 @@ exports.getCompanies = async (req, res) => {
 
 // @desc    Create a tenant company
 // @route   POST /api/tenant-companies
-// @access  Private (SuperAdmin only)
+// @access  Private
 exports.createCompany = async (req, res) => {
+  return res.status(403).json({ success: false, message: "Company creation is handled by registration." });
   try {
     const { company_name, company_code, contact_person, email, mobile, address, status } = req.body;
 
@@ -60,6 +67,9 @@ exports.createCompany = async (req, res) => {
       ]
     );
 
+    // LOGGING
+    await logAudit(req, `Created company: ${company_name} (Code: ${code})`);
+
     res.status(201).json({
       success: true,
       message: "Company created successfully.",
@@ -81,10 +91,15 @@ exports.createCompany = async (req, res) => {
 
 // @desc    Update a tenant company (Enforces deactivation protection)
 // @route   PUT /api/tenant-companies/:id
-// @access  Private (SuperAdmin only)
+// @access  Private
 exports.updateCompany = async (req, res) => {
   try {
     const { id } = req.params;
+    
+    if (parseInt(id) !== parseInt(req.user.company_id)) {
+      return res.status(403).json({ success: false, message: "Forbidden. You can only update your own company." });
+    }
+
     const { company_name, company_code, contact_person, email, mobile, address, status } = req.body;
 
     // 1. Check if company exists
@@ -180,6 +195,9 @@ exports.updateCompany = async (req, res) => {
       ]
     );
 
+    // LOGGING
+    await logAudit(req, `Updated company ID: ${id}`);
+
     res.json({
       success: true,
       message: "Company details updated successfully.",
@@ -195,11 +213,15 @@ exports.updateCompany = async (req, res) => {
 
 // @desc    Assign CompanyAdmin user to a company
 // @route   POST /api/tenant-companies/:id/assign-admin
-// @access  Private (SuperAdmin only)
+// @access  Private
 exports.assignAdmin = async (req, res) => {
   try {
     const { id } = req.params; // Company ID
     const { user_id } = req.body;
+
+    if (parseInt(id) !== parseInt(req.user.company_id)) {
+      return res.status(403).json({ success: false, message: "Forbidden." });
+    }
 
     if (!user_id) {
       return res.status(400).json({

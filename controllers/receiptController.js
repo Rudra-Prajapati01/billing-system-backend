@@ -1,8 +1,9 @@
 const db = require("../config/db"); // Adjust path to your DB connection file
-const { getTenantFilter } = require("../utils/tenantHelper");
+const { getTenantFilter, requireBusinessAccess } = require("../utils/tenantHelper");
 
 // Fetch all receipts
 exports.getAllReceipts = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const { filterSql, filterParams } = getTenantFilter(req, "r");
     const query = `
@@ -30,6 +31,7 @@ exports.getAllReceipts = async (req, res) => {
 
 // Generate Next Receipt Number
 exports.getNextReceiptNumber = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const { filterSql, filterParams } = getTenantFilter(req);
     const query = `SELECT MAX(receipt_no) AS max_no FROM receipts WHERE 1=1 ${filterSql}`;
@@ -53,6 +55,7 @@ exports.getNextReceiptNumber = async (req, res) => {
 
 // Create a new receipt
 exports.createReceipt = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const { payment_id, receipt_date } = req.body;
 
@@ -104,6 +107,7 @@ exports.createReceipt = async (req, res) => {
 
 // Get Single Receipt by ID
 exports.getReceiptById = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const { id } = req.params;
 
@@ -146,6 +150,7 @@ exports.getReceiptById = async (req, res) => {
 
 // Delete a receipt
 exports.deleteReceipt = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const { id } = req.params;
 

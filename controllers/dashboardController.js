@@ -34,8 +34,91 @@ const getDateRange = (rangeType, dateColumn) => {
   return { sql: '', params: [] };
 };
 
+exports.getSuperAdminDashboardData = async (req, res) => {
+  try {
+    // ---------------------------------------------------------
+    // SUPER ADMIN DASHBOARD (Strictly Platform Data Only)
+    // ---------------------------------------------------------
+      
+      const [[companyStats]] = await db.query(`
+        SELECT 
+          COUNT(id) as totalCompanies,
+          SUM(CASE WHEN status = 'Active' THEN 1 ELSE 0 END) as activeCompanies,
+          SUM(CASE WHEN status = 'Inactive' THEN 1 ELSE 0 END) as inactiveCompanies,
+          SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 ELSE 0 END) as newCompanies
+        FROM companies
+      `);
+
+      const [[userStats]] = await db.query(`
+        SELECT COUNT(id) as totalUsers FROM users
+      `);
+
+      const [recentCompanies] = await db.query(`
+        SELECT id, company_name, company_code, status, created_at 
+        FROM companies 
+        ORDER BY created_at DESC 
+        LIMIT 5
+      `);
+
+      const [recentUsers] = await db.query(`
+        SELECT u.id, u.name, u.username, u.role, c.company_name, u.created_at
+        FROM users u
+        LEFT JOIN companies c ON u.company_id = c.id
+        ORDER BY u.created_at DESC
+        LIMIT 5
+      `);
+
+      // Platform Analytics - Monthly Company Registrations (Last 12 months)
+      const chartMap = new Map();
+      for (let i = 11; i >= 0; i--) {
+        const m = moment().subtract(i, 'months').format('MMM YY');
+        chartMap.set(m, { newCompanies: 0 });
+      }
+      
+      const [companiesGrowth] = await db.query(`
+        SELECT created_at FROM companies 
+        WHERE created_at >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+      `);
+      
+      companiesGrowth.forEach(c => {
+        const k = moment(c.created_at).format('MMM YY');
+        if(chartMap.has(k)) {
+          chartMap.get(k).newCompanies += 1;
+        }
+      });
+
+      const chartData = { months: [], newCompanies: [] };
+      for (let [key, val] of chartMap) {
+        chartData.months.push(key);
+        chartData.newCompanies.push(val.newCompanies);
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          totalCompanies: companyStats.totalCompanies || 0,
+          activeCompanies: companyStats.activeCompanies || 0,
+          inactiveCompanies: companyStats.inactiveCompanies || 0,
+          newCompanies: companyStats.newCompanies || 0,
+          totalUsers: userStats.totalUsers || 0,
+          recentCompanies,
+          recentUsers,
+          chartData
+        }
+      });
+  } catch (err) {
+    console.error("Error in getSuperAdminDashboardData:", err);
+    res.status(500).json({ success: false, error: "Failed to fetch platform dashboard data", message: err.message });
+  }
+};
+
 exports.getDashboardData = async (req, res) => {
   try {
+    // ---------------------------------------------------------
+    // COMPANY DASHBOARD (Business Data)
+    // ---------------------------------------------------------
+    
+    // getTenantFilter will strictly throw 403 if SuperAdmin tries to reach here directly
     const { filterSql, filterParams } = getTenantFilter(req);
     const { filterSql: iFilterSql, filterParams: iFilterParams } = getTenantFilter(req, "i");
 
@@ -265,6 +348,7 @@ exports.getDashboardData = async (req, res) => {
     });
 
     res.status(200).json({
+      superAdmin: false,
       totalRevenue: revenueRes.totalRevenue || 0,
       totalInvoices: invoiceCountRes.totalInvoices || 0,
       totalCustomers: customerCountRes.totalCustomers || 0,
@@ -277,7 +361,11 @@ exports.getDashboardData = async (req, res) => {
     });
 
   } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     console.error("Error fetching dashboard data:", error);
     res.status(500).json({ success: false, message: "Server error while fetching dashboard data." });
   }
 };
+

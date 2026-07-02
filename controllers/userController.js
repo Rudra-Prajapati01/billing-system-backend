@@ -1,6 +1,7 @@
 const bcrypt = require("bcryptjs");
 const db = require("../config/db");
 const catchAsync = require("../utils/catchAsync");
+const { logAudit } = require("../utils/auditLogger");
 
 // @desc    Get all users (paginated, searchable, sorted latest first)
 // @route   GET /api/users
@@ -14,19 +15,11 @@ exports.getUsers = catchAsync(async (req, res, next) => {
   let queryParams = [];
   let whereClause = "";
 
-  // Security: Non-SuperAdmins can only see users of their own company
-  if (req.user.role !== "SuperAdmin") {
-    whereClause = "WHERE u.company_id = ?";
-    queryParams.push(req.user.company_id);
-    if (search) {
-      whereClause += " AND (u.name LIKE ? OR u.username LIKE ?)";
-      queryParams.push(`%${search}%`, `%${search}%`);
-    }
-  } else {
-    if (search) {
-      whereClause = "WHERE u.name LIKE ? OR u.username LIKE ?";
-      queryParams.push(`%${search}%`, `%${search}%`);
-    }
+  whereClause = "WHERE u.company_id = ?";
+  queryParams.push(req.user.company_id);
+  if (search) {
+    whereClause += " AND (u.name LIKE ? OR u.username LIKE ?)";
+    queryParams.push(`%${search}%`, `%${search}%`);
   }
 
   // Get total count for pagination
@@ -105,32 +98,7 @@ exports.createUser = catchAsync(async (req, res, next) => {
     });
   }
 
-  // 4. Validate Company ID
-  let assignedCompanyId = null;
-  if (role !== "SuperAdmin") {
-    assignedCompanyId = company_id || null;
-    if (!assignedCompanyId) {
-      return res.status(400).json({
-        success: false,
-        message: "Company assignment is required for CompanyAdmin and Staff roles.",
-      });
-    }
-
-    // Check if company exists and is Active
-    const [comp] = await db.query("SELECT id, status FROM companies WHERE id = ?", [assignedCompanyId]);
-    if (comp.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "The assigned company does not exist.",
-      });
-    }
-    if (comp[0].status !== "Active") {
-      return res.status(400).json({
-        success: false,
-        message: "Cannot assign a user to an inactive company.",
-      });
-    }
-  }
+  let assignedCompanyId = req.user.company_id;
 
   // 5. Check if username exists
   const [existing] = await db.query("SELECT id FROM users WHERE username = ?", [trimmedUsername]);
@@ -151,6 +119,9 @@ exports.createUser = catchAsync(async (req, res, next) => {
      VALUES (?, ?, ?, ?, ?, ?)`,
     [name.trim(), trimmedUsername, hashedPassword, role, status, assignedCompanyId]
   );
+
+  // LOGGING
+  await logAudit(req, `Created user: ${trimmedUsername} (ID: ${result.insertId})`);
 
   res.status(201).json({
     success: true,
@@ -206,30 +177,14 @@ exports.updateUser = catchAsync(async (req, res, next) => {
     });
   }
 
-  // 3. Validate Company ID
-  let assignedCompanyId = null;
-  if (role !== "SuperAdmin") {
-    assignedCompanyId = company_id || null;
-    if (!assignedCompanyId) {
-      return res.status(400).json({
-        success: false,
-        message: "Company assignment is required for CompanyAdmin and Staff roles.",
-      });
-    }
-
-    // Check if company exists
-    const [comp] = await db.query("SELECT id, status FROM companies WHERE id = ?", [assignedCompanyId]);
-    if (comp.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "The assigned company does not exist.",
-      });
-    }
+  if (userToUpdate.company_id !== req.user.company_id) {
+    return res.status(403).json({ success: false, message: "You can only manage users within your own company." });
   }
+  let assignedCompanyId = req.user.company_id;
 
   // 4. SuperAdmin Protection: Check if changing role/status of last SuperAdmin
   if (userToUpdate.role === "SuperAdmin" && role !== "SuperAdmin") {
-    const [admins] = await db.query("SELECT COUNT(1) AS count FROM users WHERE role = 'SuperAdmin'");
+    const [admins] = await db.query("SELECT COUNT(1) AS count FROM users WHERE role = 'SuperAdmin' AND company_id = ?", [req.user.company_id]);
     if (admins[0].count <= 1) {
       return res.status(400).json({
         success: false,
@@ -239,7 +194,7 @@ exports.updateUser = catchAsync(async (req, res, next) => {
   }
 
   if (userToUpdate.role === "SuperAdmin" && status === "Inactive") {
-    const [admins] = await db.query("SELECT COUNT(1) AS count FROM users WHERE role = 'SuperAdmin' AND status = 'Active'");
+    const [admins] = await db.query("SELECT COUNT(1) AS count FROM users WHERE role = 'SuperAdmin' AND status = 'Active' AND company_id = ?", [req.user.company_id]);
     if (admins[0].count <= 1) {
       return res.status(400).json({
         success: false,
@@ -280,6 +235,9 @@ exports.updateUser = catchAsync(async (req, res, next) => {
 
   await db.query(updateQuery, queryParams);
 
+  // LOGGING
+  await logAudit(req, `Updated user: ID ${id}`);
+
   res.json({
     success: true,
     message: "User updated successfully.",
@@ -301,7 +259,7 @@ exports.deleteUser = catchAsync(async (req, res, next) => {
   }
 
   // 2. Check if user exists
-  const [existing] = await db.query("SELECT id, role FROM users WHERE id = ?", [id]);
+  const [existing] = await db.query("SELECT id, role, company_id FROM users WHERE id = ?", [id]);
   if (existing.length === 0) {
     return res.status(404).json({
       success: false,
@@ -311,9 +269,13 @@ exports.deleteUser = catchAsync(async (req, res, next) => {
 
   const userToDelete = existing[0];
 
+  if (userToDelete.company_id !== req.user.company_id) {
+    return res.status(403).json({ success: false, message: "You can only delete users within your own company." });
+  }
+
   // 3. SuperAdmin Protection: Check if deleting the last SuperAdmin
   if (userToDelete.role === "SuperAdmin") {
-    const [admins] = await db.query("SELECT COUNT(1) AS count FROM users WHERE role = 'SuperAdmin'");
+    const [admins] = await db.query("SELECT COUNT(1) AS count FROM users WHERE role = 'SuperAdmin' AND company_id = ?", [req.user.company_id]);
     if (admins[0].count <= 1) {
       return res.status(400).json({
         success: false,
@@ -325,8 +287,34 @@ exports.deleteUser = catchAsync(async (req, res, next) => {
   // 4. Perform deletion
   await db.query("DELETE FROM users WHERE id = ?", [id]);
 
+  // LOGGING
+  await logAudit(req, `Deleted user ID: ${id}`);
+
   res.json({
     success: true,
     message: "User deleted successfully.",
+  });
+});
+
+exports.changeUserStatus = catchAsync(async (req, res, next) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  if (!["Active", "Inactive"].includes(status)) {
+    return res.status(400).json({ success: false, message: "Invalid status." });
+  }
+
+  // 4. Perform status change
+  await db.query(
+    "UPDATE users SET status = ? WHERE id = ? AND id != ?",
+    [status, id, req.user.id]
+  );
+
+  // LOGGING
+  await logAudit(req, `Changed status of user ID ${id} to ${status}`);
+
+  res.json({
+    success: true,
+    message: "User status updated successfully",
   });
 });

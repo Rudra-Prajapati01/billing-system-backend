@@ -1,8 +1,9 @@
 const db = require("../config/db");
-const { getTenantFilter, getInsertCompanyId } = require("../utils/tenantHelper");
+const { getTenantFilter, requireBusinessAccess, getInsertCompanyId } = require("../utils/tenantHelper");
 
 // Fetch all quotations (ordered by id DESC)
 exports.getQuotations = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const { filterSql, filterParams } = getTenantFilter(req, "q");
     const [rows] = await db.query(`
@@ -21,6 +22,7 @@ exports.getQuotations = async (req, res) => {
 
 // Generate the next quotation number
 exports.getNextQuotationNumber = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const { filterSql, filterParams } = getTenantFilter(req);
     const [rows] = await db.query(`SELECT MAX(quotation_no) AS max_no FROM quotations WHERE 1=1 ${filterSql}`, filterParams);
@@ -44,12 +46,13 @@ exports.getNextQuotationNumber = async (req, res) => {
 
 // Add Quotation (with items in a Transaction)
 exports.addQuotation = async (req, res) => {
+  requireBusinessAccess(req);
   let connection;
   try {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
-    let { quotation_no, quotation_date, customer_id, bank_id, terms_id, notes, items } = req.body;
+    let { quotation_no, quotation_date, customer_id, bank_id, terms_id, items } = req.body;
 
     if (!quotation_no || !quotation_date || !customer_id || !items || items.length === 0) {
       return res.status(400).json({ success: false, message: "Required fields are missing." });
@@ -93,9 +96,9 @@ exports.addQuotation = async (req, res) => {
     const calculatedGrandTotal = parseFloat((calculatedSubtotal + calculatedGstAmount).toFixed(2));
 
     const [headerResult] = await connection.query(
-      `INSERT INTO quotations (company_id, quotation_no, quotation_date, customer_id, subtotal, gst_amount, grand_total, notes, bank_id, terms_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [ companyId, quotation_no.trim(), quotation_date, customer_id, calculatedSubtotal, calculatedGstAmount, calculatedGrandTotal, notes ? notes.trim() : null, bank_id || null, terms_id || null ]
+      `INSERT INTO quotations (company_id, quotation_no, quotation_date, customer_id, subtotal, gst_amount, grand_total, bank_id, terms_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [ companyId, quotation_no.trim(), quotation_date, customer_id, calculatedSubtotal, calculatedGstAmount, calculatedGrandTotal, bank_id || null, terms_id || null ]
     );
     const quotationId = headerResult.insertId;
 
@@ -120,13 +123,14 @@ exports.addQuotation = async (req, res) => {
 
 // Update Quotation (NEW FUNCTION FOR EDIT)
 exports.updateQuotation = async (req, res) => {
+  requireBusinessAccess(req);
   const { id } = req.params;
   let connection;
   try {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
-    let { quotation_no, quotation_date, customer_id, bank_id, terms_id, notes, items } = req.body;
+    let { quotation_no, quotation_date, customer_id, bank_id, terms_id, items } = req.body;
 
     if (!quotation_no || !quotation_date || !customer_id || !items || items.length === 0) {
       return res.status(400).json({ success: false, message: "Required fields are missing." });
@@ -164,8 +168,8 @@ exports.updateQuotation = async (req, res) => {
     const companyId = getInsertCompanyId(req);
 
     const [updateResult] = await connection.query(
-      `UPDATE quotations SET quotation_no=?, quotation_date=?, customer_id=?, subtotal=?, gst_amount=?, grand_total=?, notes=?, bank_id=?, terms_id=? WHERE id=? ${filterSql}`,
-      [ quotation_no.trim(), quotation_date, customer_id, calculatedSubtotal, calculatedGstAmount, calculatedGrandTotal, notes ? notes.trim() : null, bank_id || null, terms_id || null, id, ...filterParams ]
+      `UPDATE quotations SET quotation_no=?, quotation_date=?, customer_id=?, subtotal=?, gst_amount=?, grand_total=?, bank_id=?, terms_id=? WHERE id=? ${filterSql}`,
+      [ quotation_no.trim(), quotation_date, customer_id, calculatedSubtotal, calculatedGstAmount, calculatedGrandTotal, bank_id || null, terms_id || null, id, ...filterParams ]
     );
     
     if (updateResult.affectedRows === 0) {
@@ -196,6 +200,7 @@ exports.updateQuotation = async (req, res) => {
 
 // Delete Quotation
 exports.deleteQuotation = async (req, res) => {
+  requireBusinessAccess(req);
   const { id } = req.params;
   let connection;
   try {
@@ -219,6 +224,7 @@ exports.deleteQuotation = async (req, res) => {
 
 // Fetch quotation details with items (Updated to fetch header)
 exports.getQuotationById = async (req, res) => {
+  requireBusinessAccess(req);
   const { id } = req.params;
   try {
     const { filterSql, filterParams } = getTenantFilter(req);

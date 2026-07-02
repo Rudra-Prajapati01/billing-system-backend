@@ -1,10 +1,11 @@
 const db = require("../config/db");
-const { getTenantFilter, getInsertCompanyId } = require("../utils/tenantHelper");
+const { getTenantFilter, requireBusinessAccess, getInsertCompanyId } = require("../utils/tenantHelper");
 
 // ==========================================
 // 1. GET: Fetch All Leads
 // ==========================================
 exports.getLeads = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const { filterSql, filterParams } = getTenantFilter(req);
     const query = `SELECT * FROM leads WHERE 1=1 ${filterSql} ORDER BY created_at DESC`;
@@ -20,6 +21,7 @@ exports.getLeads = async (req, res) => {
 // 2. POST: Create a New Lead
 // ==========================================
 exports.addLead = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const { 
       firm_name, contact_no_1, contact_no_2, email, gst_no, 
@@ -79,6 +81,7 @@ exports.addLead = async (req, res) => {
 // 3. PUT: Update an Existing Lead (Secured)
 // ==========================================
 exports.updateLead = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const leadId = req.params.id;
     const { filterSql, filterParams } = getTenantFilter(req);
@@ -120,6 +123,7 @@ exports.updateLead = async (req, res) => {
 // 4. DELETE: Remove a Lead (Secured)
 // ==========================================
 exports.deleteLead = async (req, res) => {
+  requireBusinessAccess(req);
   try {
     const leadId = req.params.id;
     const { filterSql, filterParams } = getTenantFilter(req);
