@@ -50,7 +50,12 @@ exports.getSuperAdminDashboardData = async (req, res) => {
       `);
 
       const [[userStats]] = await db.query(`
-        SELECT COUNT(id) as totalUsers FROM users
+        SELECT 
+          COUNT(id) as totalUsers,
+          SUM(CASE WHEN status = 'Active' THEN 1 ELSE 0 END) as activeUsers,
+          SUM(CASE WHEN status = 'Inactive' THEN 1 ELSE 0 END) as inactiveUsers,
+          SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 ELSE 0 END) as newUsers
+        FROM users
       `);
 
       const [recentCompanies] = await db.query(`
@@ -87,10 +92,23 @@ exports.getSuperAdminDashboardData = async (req, res) => {
         }
       });
 
-      const chartData = { months: [], newCompanies: [] };
+      const [usersGrowth] = await db.query(`
+        SELECT created_at FROM users 
+        WHERE created_at >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+      `);
+      
+      usersGrowth.forEach(u => {
+        const k = moment(u.created_at).format('MMM YY');
+        if(chartMap.has(k)) {
+          chartMap.get(k).newUsers = (chartMap.get(k).newUsers || 0) + 1;
+        }
+      });
+
+      const chartData = { months: [], newCompanies: [], newUsers: [] };
       for (let [key, val] of chartMap) {
         chartData.months.push(key);
         chartData.newCompanies.push(val.newCompanies);
+        chartData.newUsers.push(val.newUsers || 0);
       }
 
       return res.status(200).json({
@@ -101,6 +119,9 @@ exports.getSuperAdminDashboardData = async (req, res) => {
           inactiveCompanies: companyStats.inactiveCompanies || 0,
           newCompanies: companyStats.newCompanies || 0,
           totalUsers: userStats.totalUsers || 0,
+          activeUsers: userStats.activeUsers || 0,
+          inactiveUsers: userStats.inactiveUsers || 0,
+          newUsers: userStats.newUsers || 0,
           recentCompanies,
           recentUsers,
           chartData
